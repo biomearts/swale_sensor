@@ -14,16 +14,18 @@ labels = []
 RANGE = 0, 1023
 RANGE = 300, 723
 
+TYPE = "moisture"
+
 def message_handler(response):
     # log.info(response)
     try:
-        # print(response['sensor'], response['samples'], response['rssi'])
+        print(response['sensor'], response['samples'], response['rssi'])
         t = util.timestamp(ms=True)        
         sensor = response['sensor']
-        sample = response['samples']
+        sample = response['samples']  ## just one dimension?
         sample.append(round(sum(sample) / 3))
         rssi = response['rssi']
-        data = {'t': t, 'sensor': sensor, 'sample': sample, 'rssi': rssi}
+        data = {'t': t, 'type': TYPE, 'sensor': sensor, 'sample': sample, 'rssi': rssi}
         # print(json.dumps(data, indent=4))
         db.branches.insert(data)
         if sensor not in sensor_data:
@@ -57,13 +59,12 @@ def draw():
     for sensor in list(sensor_data):
         samples = sensor_data[sensor]
         if len(samples):
-            ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][0] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(1., 0., 0., 1.))
-            ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][1] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(0., 1., 0., 1.))
+            # ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][0] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(1., 0., 0., 1.))
+            # ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][1] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(0., 1., 0., 1.))
             ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][2] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(0., 0., 1., 1.))
-            ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][3] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(0., 0., 0., 1.))
+            # ctx.lines([((t_now - sample[0]) / 10.0, (sample[1][3] - RANGE[0]) / (RANGE[1] - RANGE[0])) for sample in list(samples)], color=(0., 0., 0., 1.))
 
 
 xbee = XBee(config['device_name'], message_handler=message_handler)
-ctx = animation.Context(1000, 300, background=(1., 1., 1., 1.), fullscreen=False, title="TREE", smooth=True)    
-ctx.add_callback("mouse_press", on_mouse_press)
+ctx = animation.Context(1000, 300, background=(1., 1., 1., 1.), fullscreen=False, title="SWALE", smooth=True)    
 ctx.start(draw)
