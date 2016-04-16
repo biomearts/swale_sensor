@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-import time, json, math, threading, queue
+import time, json, math, threading, queue, requests
 from random import random
 from collections import deque, OrderedDict
-from housepy import config, log, util, net
+from housepy import config, log, util
 from housepy.xbee import XBee
 
 RANGE = 0, 1023
@@ -45,7 +45,8 @@ class DataSender(threading.Thread):
                     entry = {'t_utc': util.timestamp(), 'type': TYPE, 'moisture': average_sample, 'rssi': average_rssi}
                     log.info(json.dumps(entry, indent=4))
                     try:
-                        net.read(config['server'], data=entry, timeout=5)
+                        response = requests.post(config['server'], json=entry, timeout=5)
+                        log.info(response.status_code)
                     except Exception as e:
                         log.error(log.exc(e))
             while time.time() - start_t < 5.0:
