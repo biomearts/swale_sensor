@@ -31,27 +31,17 @@ class DataSender(threading.Thread):
         self.start()
 
     def run(self):
-        while True:  
-            data = []
+        while True:
             try:
-                start_t = time.time()
-                while True:
-                    data.append(self.queue.get_nowait())
-            except queue.Empty:
-                if len(data):
-                    ## doesnt take into account multiple sensors
-                    average_sample = round(sum([d['sample'][0] for d in data]) / len(data)) / RANGE[-1]
-                    average_rssi = round(sum([d['rssi'] for d in data]) / len(data))
-                    entry = {'t_utc': util.timestamp(), 'type': TYPE, 'moisture': average_sample, 'rssi': average_rssi}
-                    log.info(json.dumps(entry, indent=4))
-                    try:
-                        response = requests.post(config['server'], json=entry, timeout=5)
-                        log.info(response.status_code)
-                    except Exception as e:
-                        log.error(log.exc(e))
-            while time.time() - start_t < 5.0:
-                time.sleep(0.02)
+                data = self.queue.get()
+                value = max(data['sample'][0], RANGE[0]) / RANGE[1]
+                entry = {'t_utc': util.timestamp(), 'sensor': data['sensor'], 'type': TYPE, 'value': value, 'rssi': data['rssi']}
+                log.info(json.dumps(entry, indent=4))
+                response = requests.post(config['server'], json=entry, timeout=5)
+                log.info(response.status_code)
+            except Exception as e:
+                log.error(log.exc(e))
 
 
 data_sender = DataSender()
-xbee = XBee(config['device_name'], message_handler=message_handler, blocking=True)
+xbee = XBee(config['device_name'], message_handler=message_handler, blocking=True, verbose=True)
