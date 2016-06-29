@@ -3,8 +3,11 @@
 import time, json, math, threading, queue, requests
 from random import random
 from collections import deque, OrderedDict
-from housepy import config, log, util
+from housepy import config, log, util, process
 from housepy.xbee import XBee
+
+process.secure_pid(os.path.abspath(os.path.join(os.path.dirname(__file__), "run")))
+
 
 RANGE = 0, 1023
 TYPE = "moisture"
