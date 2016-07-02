@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import serial, json, threading, time
+import serial, json, threading, time, os
 from housepy import config, log, util
 
 TYPE = "weather"
@@ -15,20 +15,19 @@ class WeatherStation(threading.Thread):
 
     def run(self):
         try:
-            connection = serial.Serial("/dev/tty.usbmodem1D11321", 9600)
-        # if device_name is None:
-        #     for dn in os.listdir("/dev"):
-        #         if "tty.usbserial-" in dn:
-        #             device_name = os.path.join("/dev", dn)
-        #             break
-        #         if "ttyUSB" in dn:
-        #             device_name = os.path.join("/dev", dn)
-        #             break
-        #     if device_name is None:
-        #         log.info("No devices available")
-        #         exit()
-        # log.info("Receiving xbee messages on %s" % device_name)
-
+            device_name = None
+            for dn in os.listdir("/dev"):
+                if "tty.usbmodem" in dn:
+                    device_name = os.path.join("/dev", dn)
+                    break
+                if "ttyACM0" in dn:
+                    device_name = os.path.join("/dev", dn)
+                    break
+            if device_name is None:
+                log.info("No devices available")
+                exit()
+            connection = serial.Serial(device_name, 9600)
+            log.info("Receiving xbee messages on %s" % device_name)
         except Exception as e:
             log.error(log.exc(e))
         else:
