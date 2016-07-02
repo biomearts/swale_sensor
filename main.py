@@ -5,25 +5,10 @@ from random import random
 from collections import deque, OrderedDict
 from housepy import config, log, util, process
 from housepy.xbee import XBee
+from weather_station import WeatherStation
+import remote_sensors
 
 process.secure_pid(os.path.abspath(os.path.join(os.path.dirname(__file__), "run")))
-
-
-RANGE = 0, 1023
-TYPE = "moisture"
-
-def message_handler(response):
-    try:
-        # print(response['sensor'], response['samples'], response['rssi'])
-        t_utc = util.timestamp(ms=True)        
-        sensor = response['sensor']
-        sample = response['samples']
-        rssi = response['rssi']
-        data = {'t_utc': t_utc, 'type': TYPE, 'sensor': sensor, 'sample': sample, 'rssi': rssi}
-        data_sender.queue.put(data)
-    except Exception as e:
-        log.error(log.exc(e))
-
 
 class DataSender(threading.Thread):
 
@@ -37,14 +22,14 @@ class DataSender(threading.Thread):
         while True:
             try:
                 data = self.queue.get()
-                value = max(data['sample'][0], RANGE[0]) / RANGE[1]
-                entry = {'t_utc': util.timestamp(), 'sensor': data['sensor'], 'type': TYPE, 'value': value, 'rssi': data['rssi']}
-                log.info(json.dumps(entry, indent=4))
-                response = requests.post(config['server'], json=entry, timeout=5)
+                response = requests.post(config['server'], json=data, timeout=5)
                 log.info(response.status_code)
             except Exception as e:
                 log.error(log.exc(e))
 
-
 data_sender = DataSender()
-xbee = XBee(config['device_name'], message_handler=message_handler, blocking=True, verbose=True)
+remote_sensors.data_sender = data_sender
+weather_station = WeatherStation(data_sender)
+
+while True:
+    time.sleep(1)
