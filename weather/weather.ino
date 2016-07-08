@@ -1,29 +1,33 @@
-/*
+/* 
  Weather Shield Example
- By: Nathan Seidle                ### only printWeather modded by BH
+ By: Nathan Seidle
  SparkFun Electronics
  Date: November 16th, 2013
  License: This code is public domain but you buy me a beer if you use this and we meet someday (Beerware license).
-
+ 
  Much of this is based on Mike Grusin's USB Weather Board code: https://www.sparkfun.com/products/10586
-
- This is a more advanced example of how to utilize every aspect of the weather shield. See the basic
- example if you're just getting started.
  
  This code reads all the various sensors (wind speed, direction, rain gauge, humidty, pressure, light, batt_lvl)
  and reports it over the serial comm port. This can be easily routed to an datalogger (such as OpenLog) or
  a wireless transmitter (such as Electric Imp).
-
+ 
  Measurements are reported once a second but windspeed and rain gauge are tied to interrupts that are
  calcualted at each report.
-
- This example code assumes the GPS module is not used.
-
+ 
+ This example code assumes the GP-635T GPS module is attached.
+ 
  */
 
 #include <Wire.h> //I2C needed for sensors
 #include "SparkFunMPL3115A2.h" //Pressure sensor - Search "SparkFun MPL3115" and install from Library Manager
 #include "SparkFunHTU21D.h" //Humidity sensor - Search "SparkFun HTU21D" and install from Library Manager
+#include <SoftwareSerial.h> //Needed for GPS
+#include <TinyGPS++.h> //GPS parsing - Available through the Library Manager.
+
+TinyGPSPlus gps;
+
+static const int RXPin = 5, TXPin = 4; //GPS is attached to pin 4(TX from GPS) and pin 5(RX into GPS)
+SoftwareSerial ss(RXPin, TXPin); 
 
 MPL3115A2 myPressure; //Create an instance of the pressure sensor
 HTU21D myHumidity; //Create an instance of the humidity sensor
@@ -35,6 +39,7 @@ const byte WSPEED = 3;
 const byte RAIN = 2;
 const byte STAT1 = 7;
 const byte STAT2 = 8;
+const byte GPS_PWRCTL = 6; //Pulling this pin low puts GPS to sleep but maintains RTC and RAM
 
 // analog I/O pins
 const byte REFERENCE_3V3 = A3;
@@ -65,9 +70,7 @@ volatile byte windClicks = 0;
 //Total rain over date (store one per day)
 
 byte windspdavg[120]; //120 bytes to keep track of 2 minute average
-
-#define WIND_DIR_AVG_SIZE 120
-int winddiravg[WIND_DIR_AVG_SIZE]; //120 ints to keep track of 2 minute average
+int winddiravg[120]; //120 ints to keep track of 2 minute average
 float windgust_10m[10]; //10 floats to keep track of 10 minute max
 int windgustdirection_10m[10]; //10 ints to keep track of 10 minute max
 volatile float rainHour[60]; //60 floating numbers to keep track of 60 minutes of rain
@@ -92,6 +95,12 @@ float pressure = 0;
 float batt_lvl = 11.8; //[analog value from 0 to 1023]
 float light_lvl = 455; //[analog value from 0 to 1023]
 
+//Variables used for GPS
+//float flat, flon; // 39.015024 -102.283608686
+//unsigned long age;
+//int year;
+//byte month, day, hour, minute, second, hundredths;
+
 // volatiles are subject to modification by IRQs
 volatile unsigned long raintime, rainlast, raininterval, rain;
 
@@ -106,7 +115,7 @@ void rainIRQ()
   raintime = millis(); // grab current time
   raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
+    if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
   {
     dailyrainin += 0.011; //Each dump is 0.011" of water
     rainHour[minutes] += 0.011; //Increase this minute's amount of rain
@@ -131,12 +140,17 @@ void setup()
   Serial.begin(9600);
 //  Serial.println("Weather Shield Example");
 
+  ss.begin(9600); //Begin listening to GPS over software serial at 9600. This should be the default baud of the module.
+
   pinMode(STAT1, OUTPUT); //Status LED Blue
   pinMode(STAT2, OUTPUT); //Status LED Green
-
+  
+  pinMode(GPS_PWRCTL, OUTPUT);
+  digitalWrite(GPS_PWRCTL, HIGH); //Pulling this pin low puts GPS to sleep but maintains RTC and RAM
+  
   pinMode(WSPEED, INPUT_PULLUP); // input from wind meters windspeed sensor
   pinMode(RAIN, INPUT_PULLUP); // input from wind meters rain gauge sensor
-
+  
   pinMode(REFERENCE_3V3, INPUT);
   pinMode(LIGHT, INPUT);
 
@@ -144,7 +158,7 @@ void setup()
   myPressure.begin(); // Get sensor online
   myPressure.setModeBarometer(); // Measure pressure in Pascals from 20 to 110 kPa
   myPressure.setOversampleRate(7); // Set Oversample to the recommended 128
-  myPressure.enableEventFlags(); // Enable all three pressure and temp event flags
+  myPressure.enableEventFlags(); // Enable all three pressure and temp event flags 
 
   //Configure the humidity sensor
   myHumidity.begin();
@@ -169,7 +183,7 @@ void loop()
   if(millis() - lastSecond >= 1000)
   {
     digitalWrite(STAT1, HIGH); //Blink stat LED
-
+    
     lastSecond += 1000;
 
     //Take a speed and direction reading every second for 2 minute average
@@ -196,7 +210,7 @@ void loop()
       windgustmph = currentSpeed;
       windgustdir = currentDirection;
     }
-
+    
     if(++seconds > 59)
     {
       seconds = 0;
@@ -214,8 +228,20 @@ void loop()
     digitalWrite(STAT1, LOW); //Turn off stat LED
   }
 
-  delay(100);
+  smartdelay(800); //Wait 1 second, and gather GPS data
 }
+
+//While we delay for a given amount of time, gather GPS data
+static void smartdelay(unsigned long ms)
+{
+  unsigned long start = millis();
+  do 
+  {
+    while (ss.available())
+      gps.encode(ss.read());
+  } while (millis() - start < ms);
+}
+
 
 //Calculates each of the variables that wunderground is expecting
 void calcWeather()
@@ -228,7 +254,9 @@ void calcWeather()
 
   //Calc windgustmph
   //Calc windgustdir
-  //These are calculated in the main loop
+  //Report the largest windgust today
+  windgustmph = 0;
+  windgustdir = 0;
 
   //Calc windspdmph_avg2m
   float temp = 0;
@@ -237,37 +265,19 @@ void calcWeather()
   temp /= 120.0;
   windspdmph_avg2m = temp;
 
-  //Calc winddir_avg2m, Wind Direction
-  //You can't just take the average. Google "mean of circular quantities" for more info
-  //We will use the Mitsuta method because it doesn't require trig functions
-  //And because it sounds cool.
-  //Based on: http://abelian.org/vlf/bearings.html
-  //Based on: http://stackoverflow.com/questions/1813483/averaging-angles-again
-  long sum = winddiravg[0];
-  int D = winddiravg[0];
-  for(int i = 1 ; i < WIND_DIR_AVG_SIZE ; i++)
-  {
-    int delta = winddiravg[i] - D;
-
-    if(delta < -180)
-      D += delta + 360;
-    else if(delta > 180)
-      D += delta - 360;
-    else
-      D += delta;
-
-    sum += D;
-  }
-  winddir_avg2m = sum / WIND_DIR_AVG_SIZE;
-  if(winddir_avg2m >= 360) winddir_avg2m -= 360;
-  if(winddir_avg2m < 0) winddir_avg2m += 360;
+  //Calc winddir_avg2m
+  temp = 0; //Can't use winddir_avg2m because it's an int
+  for(int i = 0 ; i < 120 ; i++)
+    temp += winddiravg[i];
+  temp /= 120;
+  winddir_avg2m = temp;
 
   //Calc windgustmph_10m
   //Calc windgustdir_10m
   //Find the largest windgust in the last 10 minutes
   windgustmph_10m = 0;
   windgustdir_10m = 0;
-  //Step through the 10 minutes
+  //Step through the 10 minutes  
   for(int i = 0; i < 10 ; i++)
   {
     if(windgust_10m[i] > windgustmph_10m)
@@ -290,7 +300,7 @@ void calcWeather()
 
   //Total rainfall for the day is calculated within the interrupt
   //Calculate amount of rainfall for the last 60 minutes
-  rainin = 0;
+  rainin = 0;  
   for(int i = 0 ; i < 60 ; i++)
     rainin += rainHour[i];
 
@@ -304,6 +314,7 @@ void calcWeather()
 
   //Calc battery level
   batt_lvl = get_battery_level();
+  
 }
 
 //Returns the voltage of the light sensor based on the 3.3V rail
@@ -313,11 +324,11 @@ float get_light_level()
   float operatingVoltage = analogRead(REFERENCE_3V3);
 
   float lightSensor = analogRead(LIGHT);
-
+  
   operatingVoltage = 3.3 / operatingVoltage; //The reference voltage is 3.3V
-
+  
   lightSensor = operatingVoltage * lightSensor;
-
+  
   return(lightSensor);
 }
 
@@ -330,13 +341,13 @@ float get_battery_level()
   float operatingVoltage = analogRead(REFERENCE_3V3);
 
   float rawVoltage = analogRead(BATT);
-
+  
   operatingVoltage = 3.30 / operatingVoltage; //The reference voltage is 3.3V
-
+  
   rawVoltage = operatingVoltage * rawVoltage; //Convert the 0 to 1023 int to actual voltage on BATT pin
-
+  
   rawVoltage *= 4.90; //(3.9k+1k)/1k - multiple BATT voltage by the voltage divider to get actual system voltage
-
+  
   return(rawVoltage);
 }
 
@@ -362,7 +373,7 @@ float get_wind_speed()
 }
 
 //Read the wind direction sensor, return heading in degrees
-int get_wind_direction()
+int get_wind_direction() 
 {
   unsigned int adc;
 
@@ -402,32 +413,17 @@ void printWeather()
   {
       return;
   }
-  lastMinute = minutes;
-  
+  lastMinute = minutes;  
+
   Serial.print("{");
-//  Serial.println();
-//  Serial.print("{\"wind_direction\": ");
-//  Serial.print(winddir);
-//  Serial.print(", \"wind_mph\": ");
-//  Serial.print(windspeedmph, 1);
-//  Serial.print(", \"wind_gust_mph\": ");
-//  Serial.print(windgustmph, 1);
-//  Serial.print(", \"wind_gust_direction\": ");
-//  Serial.print(windgustdir);
   Serial.print("\"wind_speed_mph\": ");
   Serial.print(windspdmph_avg2m, 1);
   Serial.print(", \"wind_direction_deg\": ");
   Serial.print(winddir_avg2m);
-//  Serial.print(", \"wind_gust_mph_10m\": ");
-//  Serial.print(windgustmph_10m, 1);
-//  Serial.print(",windgustdir_10m=");
-//  Serial.print(windgustdir_10m);
-  Serial.print(", \"humidity\": ");
+  Serial.print(", \"humidity_per\": ");
   Serial.print(humidity, 1);
   Serial.print(", \"temperature_f\": ");
   Serial.print(tempf, 1);
-//  Serial.print(", \"rain_in\": ");
-//  Serial.print(rainin, 2);
   Serial.print(", \"rain_in\": ");
   Serial.print(dailyrainin, 2);
   Serial.print(", \"pressure_pa\": ");
@@ -436,6 +432,68 @@ void printWeather()
   Serial.print(batt_lvl, 2);
   Serial.print(", \"light_v\": ");
   Serial.print(light_lvl, 2);
+  Serial.print(", \"longitude\": ");
+  Serial.print(gps.location.lng(), 6);
+  Serial.print(", \"latitude\": ");
+  Serial.print(gps.location.lat(), 6);
+  Serial.print(", \"altitude_m\": ");
+  Serial.print(gps.altitude.meters());
+  Serial.print(", \"satellites\": ");
+  Serial.print(gps.satellites.value());
   Serial.println("}");
 
+//  Serial.println();
+//  Serial.print("$,winddir=");
+//  Serial.print(winddir);
+//  Serial.print(",windspeedmph=");
+//  Serial.print(windspeedmph, 1);
+//  /*Serial.print(",windgustmph=");
+//  Serial.print(windgustmph, 1);
+//  Serial.print(",windgustdir=");
+//  Serial.print(windgustdir);
+//  Serial.print(",windspdmph_avg2m=");
+//  Serial.print(windspdmph_avg2m, 1);
+//  Serial.print(",winddir_avg2m=");
+//  Serial.print(winddir_avg2m);
+//  Serial.print(",windgustmph_10m=");
+//  Serial.print(windgustmph_10m, 1);
+//  Serial.print(",windgustdir_10m=");
+//  Serial.print(windgustdir_10m);*/
+//  Serial.print(",humidity=");
+//  Serial.print(humidity, 1);
+//  Serial.print(",tempf=");
+//  Serial.print(tempf, 1);
+//  Serial.print(",rainin=");
+//  Serial.print(rainin, 2);
+//  Serial.print(",dailyrainin=");
+//  Serial.print(dailyrainin, 2);
+//  Serial.print(",pressure=");
+//  Serial.print(pressure, 2);
+//  Serial.print(",batt_lvl=");
+//  Serial.print(batt_lvl, 2);
+//  Serial.print(",light_lvl=");
+//  Serial.print(light_lvl, 2);
+//
+//  Serial.print(",lat=");
+//  Serial.print(gps.location.lat(), 6);
+//  Serial.print(",lat=");
+//  Serial.print(gps.location.lng(), 6);
+//  Serial.print(",altitude=");
+//  Serial.print(gps.altitude.meters());
+//  Serial.print(",sats=");
+//  Serial.print(gps.satellites.value());
+//
+//  char sz[32];
+//  Serial.print(",date=");
+//  sprintf(sz, "%02d/%02d/%02d", gps.date.month(), gps.date.day(), gps.date.year());
+//  Serial.print(sz);
+//
+//  Serial.print(",time=");
+//  sprintf(sz, "%02d:%02d:%02d", gps.time.hour(), gps.time.minute(), gps.time.second());
+//  Serial.print(sz);
+//
+//  Serial.print(",");
+//  Serial.println("#");
+
 }
+

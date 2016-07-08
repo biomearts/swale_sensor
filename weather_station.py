@@ -3,7 +3,7 @@
 import serial, json, threading, time, os
 from housepy import config, log, util
 
-TYPE = "weather"
+SOURCE = "tower"
 
 class WeatherStation(threading.Thread):
 
@@ -36,10 +36,15 @@ class WeatherStation(threading.Thread):
                 try:
                     result = connection.readline().decode('utf-8').strip()
                     data = json.loads(result)
-                    data.update({'t_utc': util.timestamp(), 'type': TYPE})                    
+                    data.update('source': SOURCE})                    
                     log.info(json.dumps(data, indent=4))
                     if self.data_sender is not None:
-                        self.data_sender.queue.put(data)
+                        self.data_sender.queue.put(data)                        
+                    # make another entry for GPS
+                    data = {key: value for (key, value) in data if key in ['latitude', 'longitude', 'altitude']}
+                    data.update('source': "GPS")
+                    if self.data_sender is not None:
+                        self.data_sender.queue.put(data)                                            
                 except Exception as e:
                     log.error(log.exc(e))
                     log.info(result)
