@@ -36,7 +36,7 @@ class WeatherStation(threading.Thread):
                 try:
                     result = connection.readline().decode('utf-8').strip()
                     data = json.loads(result)
-                    data.update('source': SOURCE})                    
+                    data.update({'source': SOURCE})                    
                     log.info(json.dumps(data, indent=4))
                     if self.data_sender is not None:
                         self.data_sender.queue.put(data)                        
