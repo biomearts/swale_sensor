@@ -42,7 +42,7 @@ class WeatherStation(threading.Thread):
                         self.data_sender.queue.put(data)                        
                     # make another entry for GPS
                     data = {key: value for (key, value) in data if key in ['latitude', 'longitude', 'altitude_m']}
-                    data.update('source': "GPS")
+                    data.update({'source': "GPS"})
                     if self.data_sender is not None:
                         self.data_sender.queue.put(data)                                            
                 except Exception as e:
