@@ -15,7 +15,7 @@ def message_handler(response):
     try:
         # print(response['number'], response['samples'], response['rssi'])
         # t_utc = util.timestamp()      ## let server supply time
-        number = response['number']
+        number = response['sensor']
         sample = response['samples']
         rssi = response['rssi']
         data = {'source': SOURCE, 'number': number, 'sample': sample, 'rssi': rssi}
