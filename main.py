@@ -5,8 +5,8 @@ from random import random
 from collections import deque, OrderedDict
 from housepy import config, log, util, process
 from housepy.xbee import XBee
-from weather_station import WeatherStation
-import remote_sensors
+from tower import WeatherStation
+import outpost
 
 process.secure_pid(os.path.abspath(os.path.join(os.path.dirname(__file__), "run")))
 
@@ -28,7 +28,7 @@ class DataSender(threading.Thread):
                 log.error(log.exc(e))
 
 data_sender = DataSender()
-remote_sensors.data_sender = data_sender
+outpost.data_sender = data_sender
 weather_station = WeatherStation(data_sender)
 
 while True:
